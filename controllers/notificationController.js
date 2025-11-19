@@ -1,14 +1,101 @@
-const notifyDrivers = (req, res) => {
-  // Logic to notify drivers
-  res.status(200).send('Drivers notified');
+const {io} = require('../config/appConfig');
+const {getDriverSocket} = require('../services/driverService');
+
+const notifyDrivers = async(req, res) => {
+    
+    try {
+        const {rideId, rideInfo, driverIds} = req.body;
+
+        const notificationData = {
+            rideId,
+            rideInfo,
+            timeStamp: new Date().toISOString()
+        }
+    
+        const notifiedDrivers = [];
+        const failedDrivers = [];
+        console.log(driverIds);
+        for(const driverId of driverIds) {
+           const socketId =  await getDriverSocket(driverId);
+           console.log("driver socket", socketId);
+           if(socketId && io.sockets.sockets.has(socketId)) {
+                console.log(notificationData);
+                io.to(socketId).emit('new-ride-notification', notificationData);
+                notifiedDrivers.push(driverId);
+           }else{
+                failedDrivers.push(driverId);
+           }
+        }
+    
+        const result = {notifiedDrivers, failedDrivers, totalNotified: notifiedDrivers.length};
+        res.status(200).send({data: {rideId, ...result}, success: true, error: null, message: "Successfully notified drivers"});
+    }catch(error){
+        res.status(500).send({data: null, success: false, error: error.message, message: "Failed to notify drivers"});
+
+    }
+    
 }
 
-const removeNotification = (req, res) => {
-  // Logic to remove notification
-  res.status(200).send('Notification removed');
-}
+const removeRideNotification = async (req, res) => {
 
-module.exports = {
-  notifyDrivers,
-  removeNotification
+    try {
+      const { rideId, driverIds } = req.body;
+      
+      if (!rideId || !driverIds || !Array.isArray(driverIds)) {
+        return res.status(400).send({
+          data: null,
+          success: false,
+          error: 'Ride ID and driver IDs array are required',
+          message: null
+        });
+      }
+  
+      const removalData = {
+        rideId,
+        timestamp: new Date().toISOString()
+      };
+  
+      const notifiedDrivers = [];
+      const failedDrivers = [];
+  
+      for (const driverId of driverIds) {
+        const socketId = await getDriverSocket(driverId);
+        
+        if (socketId && io.sockets.sockets.has(socketId)) {
+          io.to(socketId).emit('remove-ride-notification', removalData);
+          notifiedDrivers.push(driverId);
+        } else {
+          failedDrivers.push(driverId);
+        }
+      }
+  
+      console.log(`Removed ride notification ${rideId} from ${notifiedDrivers.length} drivers`);
+  
+      const result = {
+        notifiedDrivers,
+        failedDrivers,
+        totalRequested: driverIds.length,
+        totalNotified: notifiedDrivers.length
+      };
+      
+      res.status(200).send({
+        data: {
+          rideId,
+          ...result
+        },
+        success: true,
+        error: null,
+        message: "Successfully removed ride notifications"
+      });
+  
+    } catch (error) {
+      res.status(500).send({
+        data: null,
+        success: false,
+        error: error.message,
+        message: "Failed to remove notifications"
+      });
+    }
 };
+
+module.exports = {notifyDrivers, removeRideNotification}
